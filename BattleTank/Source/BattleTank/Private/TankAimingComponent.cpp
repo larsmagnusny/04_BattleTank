@@ -2,6 +2,8 @@
 
 #include "BattleTank.h"
 #include "TankAimingComponent.h"
+#include "TankBarrel.h"
+#include "TankTurret.h"
 
 
 // Sets default values for this component's properties
@@ -14,27 +16,56 @@ UTankAimingComponent::UTankAimingComponent()
 	// ...
 }
 
-
-// Called when the game starts
-void UTankAimingComponent::BeginPlay()
+void UTankAimingComponent::SetBarrelReference(UTankBarrel * BarrelToSet)
 {
-	Super::BeginPlay();
+	Barrel = BarrelToSet;
+}
 
-	// ...
+void UTankAimingComponent::SetTurretReference(UTankTurret * TurretToSet)
+{
+	Turret = TurretToSet;
+}
+
+void UTankAimingComponent::AimAt(FVector HitLocation, float LaunchSpeed)
+{
+	if (!Barrel)
+		return;
+
+	if (!Turret)
+		return;
+
+	FVector OutLaunchVelocity;
+	FVector StartLocation = Barrel->GetSocketLocation(FName("Projectile"));
+
+	bool bHaveAimSolution = UGameplayStatics::SuggestProjectileVelocity(this, OutLaunchVelocity, StartLocation, HitLocation, LaunchSpeed, false, 0, 0, ESuggestProjVelocityTraceOption::DoNotTrace);
+
+	// Calculate the out launch velocity 
+	if (bHaveAimSolution)
+	{
+		OutLaunchVelocity.Normalize();
+
+		MoveTurretTowards(OutLaunchVelocity);
+		MoveBarrelTowards(OutLaunchVelocity);
+	}
+}
+
+void UTankAimingComponent::MoveBarrelTowards(FVector Direction)
+{
+	// Work-out difference between current barrel rotation, and AimDirection
+	FRotator BarrelRotation = Barrel->GetForwardVector().Rotation();
+	FRotator WantedRotation = Direction.Rotation();
+
+	FRotator DeltaRotator = WantedRotation - BarrelRotation;
 	
+	Barrel->Elevate(DeltaRotator.Pitch);
 }
 
-
-// Called every frame
-void UTankAimingComponent::TickComponent( float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction )
+void UTankAimingComponent::MoveTurretTowards(FVector Direction)
 {
-	Super::TickComponent( DeltaTime, TickType, ThisTickFunction );
+	FRotator TurretRotation = Turret->GetForwardVector().Rotation();
+	FRotator WantedRotation = Direction.Rotation();
+	FRotator DeltaRotator = WantedRotation - TurretRotation;
 
-	// ...
-}
-
-void UTankAimingComponent::AimAt(FVector HitLocation)
-{
-	UE_LOG(LogTemp, Warning, TEXT("%s aiming at %s"), *GetOwner()->GetName(), *HitLocation.ToString());
+	Turret->Rotate(DeltaRotator.Yaw);
 }
 

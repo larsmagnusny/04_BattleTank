@@ -1,7 +1,8 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-#include "../Public/BattleTank.h"
-#include "../Public/TankAIController.h"
+#include "BattleTank.h"
+#include "TankAIController.h"
+#include "Tank.h"
 
 ATankAIController::ATankAIController()
 {
