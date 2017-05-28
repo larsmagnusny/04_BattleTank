@@ -36,14 +36,17 @@ public:
 
 	void AimAt(FVector HitLocation);
 	
-	UPROPERTY(EditAnywhere, Category = "Firing")
+	UPROPERTY(EditDefaultsOnly, Category = "Firing")
 	float LaunchSpeed = 4000.f;
 
-	UPROPERTY(EditAnywhere, Category = "Set the projectile class")
+	UPROPERTY(EditDefaultsOnly, Category = "Set the projectile class")
 	TSubclassOf<AProjectile> ProjectileBlueprint = nullptr;
 protected:
 	UTankAimingComponent* TankAimingComponent = nullptr;
 private:
 	// Local barrel reference for spawning projectile
 	UTankBarrel* Barrel = nullptr;
+
+	float ReloadTimeInSeconds = 3.f;
+	double LastFireTime = 0;
 };
