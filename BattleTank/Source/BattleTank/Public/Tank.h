@@ -8,6 +8,7 @@
 class UTankAimingComponent;
 class UTankBarrel;
 class UTankTurret;
+class UTankMovementComponent;
 class AProjectile;
 
 UCLASS()
@@ -31,6 +32,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Set the turret reference")
 	void SetTurretReference(UTankTurret* TurretToSet);
 
+	UFUNCTION(BlueprintCallable, Category = "Set the skeletalmeshref")
+	void SetSkeletalMeshComponentReference(USkeletalMeshComponent* Component, TArray<FName> Bones);
+
+	UFUNCTION(BlueprintCallable, Category = "Add Thrust on wheels")
+	void AddThrust(float AxisValue);
+
 	UFUNCTION(BlueprintCallable, Category = "Fire the weapon")
 	void Fire();
 
@@ -43,10 +50,12 @@ public:
 	TSubclassOf<AProjectile> ProjectileBlueprint = nullptr;
 protected:
 	UTankAimingComponent* TankAimingComponent = nullptr;
+	UTankMovementComponent* TankMovementComponent = nullptr;
 private:
 	// Local barrel reference for spawning projectile
 	UTankBarrel* Barrel = nullptr;
 
 	float ReloadTimeInSeconds = 3.f;
 	double LastFireTime = 0;
+	
 };
