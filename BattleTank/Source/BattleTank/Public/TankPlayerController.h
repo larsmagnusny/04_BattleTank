@@ -5,7 +5,7 @@
 #include "GameFramework/PlayerController.h"
 #include "TankPlayerController.generated.h"
 
-class ATank;
+class ATrackedVehicle;
 
 /**
  * 
@@ -22,7 +22,7 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	UFUNCTION(BlueprintCallable, Category = "Get The Controlled Tank")
-	ATank* GetControlledTank() const;
+	ATrackedVehicle* GetControlledTank() const;
 
 	UPROPERTY(BlueprintReadWrite, Category = "The Rotation we should move towards...")
 	FVector Rotation = FVector(0, 0, 0);

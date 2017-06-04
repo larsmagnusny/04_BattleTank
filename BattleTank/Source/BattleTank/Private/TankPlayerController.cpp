@@ -2,7 +2,7 @@
 
 #include "BattleTank.h"
 #include "TankPlayerController.h"
-#include "Tank.h"
+#include "TrackedVehicle.h"
 
 
 ATankPlayerController::ATankPlayerController()
@@ -14,7 +14,7 @@ void ATankPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	ATank* ControlledTank = GetControlledTank();
+	ATrackedVehicle* ControlledTank = GetControlledTank();
 
 	if (ControlledTank)
 	{
@@ -67,9 +67,9 @@ bool ATankPlayerController::GetSightRayHitLocation(FVector & OutHitLocation) con
 	return false;
 }
 
-ATank * ATankPlayerController::GetControlledTank() const
+ATrackedVehicle * ATankPlayerController::GetControlledTank() const
 {
-	return Cast<ATank>(GetPawn());
+	return Cast<ATrackedVehicle>(GetPawn());
 }
 
 bool ATankPlayerController::GetLookDirection(FVector2D ScreenLocation, FVector& LookDirection) const

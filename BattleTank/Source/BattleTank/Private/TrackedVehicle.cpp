@@ -4,6 +4,11 @@
 #include "TrackedVehicle.h"
 #include "Carriage.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "TankAimingComponent.h"
+#include "TankMovementComponent.h"
+#include "TankBarrel.h"
+#include "TankTurret.h"
+#include "Projectile.h"
 
 
 // Sets default values
@@ -11,6 +16,8 @@ ATrackedVehicle::ATrackedVehicle()
 {
  	// Set this pawn to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
+
+	TankAimingComponent = CreateDefaultSubobject<UTankAimingComponent>(FName("Aiming Component"));
 }
 
 // Called when the game starts or when spawned
@@ -19,6 +26,27 @@ void ATrackedVehicle::BeginPlay()
 	Super::BeginPlay();
 	
 	SetRemoveAutoGearBox(true);
+
+	for (int i = 0; i < GearRatio.Num(); i++)
+	{
+		if (GearRatio[i] == 0)
+		{
+			NeutralGearIndex = i;
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("Neutral Gear Not Found!"));
+		}
+	}
+
+	if (AutoGearBox)
+	{
+		CurrentGear = NeutralGearIndex + 1;
+	}
+	else
+	{
+		CurrentGear = NeutralGearIndex;
+	}
 }
 
 // Called every frame
@@ -43,10 +71,10 @@ void ATrackedVehicle::Tick( float DeltaTime ) // TODO DoubleCheck tick function 
 
 	if (!PutToSleep())
 	{
-		UpdateThrottle();
+		UpdateThrottle(DeltaTime);
 		UpdateWheelsVelocity(DeltaTime);
 		AnimateWheels();
-		AnimateTreadsMaterial();
+		AnimateTreadsMaterial(DeltaTime);
 		AnimateTreadsSpline();
 		AnimateTreadsInstancedMesh(TrackSplineR, TrackSplineL, TreadR, TreadL);
 		UpdateAxleVelocity();
@@ -65,8 +93,8 @@ void ATrackedVehicle::Tick( float DeltaTime ) // TODO DoubleCheck tick function 
 		CountFrictionContactPoint(SuspensionsInternalRight);
 		CountFrictionContactPoint(SuspensionsInternalLeft);
 
-		ApplyDriveForceAndGetFrictionForceOnSide(this->TrackFrictionTorqueRight, this->TrackRollingFrictionTorqueRight, SuspensionsInternalRight, this->DriveRightForce, this->TrackRightLinVel);
-		ApplyDriveForceAndGetFrictionForceOnSide(this->TrackFrictionTorqueLeft, this->TrackRollingFrictionTorqueLeft, SuspensionsInternalLeft, this->DriveLeftForce, this->TrackLeftLinVel);
+		ApplyDriveForceAndGetFrictionForceOnSide(TrackFrictionTorqueRight, TrackRollingFrictionTorqueRight, SuspensionsInternalRight, TrackRightLinVel, DriveRightForce);
+		ApplyDriveForceAndGetFrictionForceOnSide(TrackFrictionTorqueLeft, TrackRollingFrictionTorqueLeft, SuspensionsInternalLeft, TrackLeftLinVel, DriveLeftForce);
 
 		//SpawnDust(SuspensionsInternalRight, this->TrackRightLinVel);
 		//SpawnDust(SuspensionsInternalLeft, this->TrackLeftLinVel);
@@ -86,14 +114,20 @@ void ATrackedVehicle::SetupPlayerInputComponent(class UInputComponent* InputComp
 	Super::SetupPlayerInputComponent(InputComponent);
 
 	InputComponent->BindAxis(FName("FWD"), this, &ATrackedVehicle::ForwardBackward);
+	InputComponent->BindAxis(FName("Rotate"), this, &ATrackedVehicle::LeftRight);
 }
 
 void ATrackedVehicle::ForwardBackward(float AxisValue)
 {
-	//UE_LOG(LogTemp, Warning, TEXT("ForwardBackward!!"));
+	//float AxisValueY = GetWorld()->GetFirstPlayerController()->InputComponent->GetAxisValue(FName("Rotate"));
+	/*UE_LOG(LogTemp, Warning, TEXT("AxisValueX: %f, AxisValueY: %f"), AxisValue, AxisValueY);
+	UE_LOG(LogTemp, Warning, TEXT("TrackRightAngVel: %f, TrackLeftAngVel: %f"), TrackRightAngVel, TrackLeftAngVel);
+	UE_LOG(LogTemp, Warning, TEXT("TrackRightTorque: %f, TrackLeftTorque: %f"), TrackRightTorque, TrackLeftTorque);
+	UE_LOG(LogTemp, Warning, TEXT("TrackFrictionTorqueRight: %f, TrackFrictionTorqueLeft: %f"), TrackFrictionTorqueRight, TrackFrictionTorqueLeft);
+	UE_LOG(LogTemp, Warning, TEXT("BrakeRatioRight: %f, BrakeRatioLeft: %f"), BrakeRatioRight, BrakeRatioLeft);*/
 	if (AutoGearBox)
 	{
-		GetThrottleInputForAutoHandling(AxisValue, 0.f);
+		GetThrottleInputForAutoHandling(AxisValueY, AxisValue);
 	}
 	else
 	{
@@ -111,11 +145,72 @@ void ATrackedVehicle::ForwardBackward(float AxisValue)
 		}
 	}
 
-	if (AxisValue != 0)
+	if (AxisValue != 0.f)
 	{
 		SleepMod = false;
 		SleepDelayTimer = 0.f;
 	}
+}
+
+void ATrackedVehicle::LeftRight(float AxisValue)
+{
+	//float AxisValueX = GetWorld()->GetFirstPlayerController()->InputComponent->GetAxisValue(FName("FWD"));
+	AxisValueY = AxisValue;
+	if (AxisValue < 0)
+	{
+		WheelRightCoefficient = FMath::Abs(AxisValue);
+		WheelLeftCoefficient = FMath::Abs(AxisValue)*(-1);
+		BrakeRatioLeft = 0.f;
+		BrakeRatioRight = 0.f;
+	}
+	else
+	{
+		WheelRightCoefficient = FMath::Abs(AxisValue)*(-1);
+		WheelLeftCoefficient = FMath::Abs(AxisValue);
+		BrakeRatioLeft = 0.f;
+		BrakeRatioRight = 0.f;
+	}
+
+	if (AxisValue != 0.f)
+	{
+		SleepMod = false;
+		SleepDelayTimer = 0.f;
+	}
+}
+
+void ATrackedVehicle::SetBarrelReference(UTankBarrel * BarrelToSet)
+{
+	if (TankAimingComponent)
+		TankAimingComponent->SetBarrelReference(BarrelToSet);
+	Barrel = BarrelToSet;
+}
+
+void ATrackedVehicle::SetTurretReference(UTankTurret * TurretToSet)
+{
+	if (TankAimingComponent)
+		TankAimingComponent->SetTurretReference(TurretToSet);
+}
+
+void ATrackedVehicle::Fire()
+{
+	bool isReloaded = (FPlatformTime::Seconds() - LastFireTime) > ReloadTimeInSeconds;
+	if (Barrel && isReloaded)
+	{
+
+		// Spawn a projectile at the socket location on the barrel
+		FActorSpawnParameters p;
+		AProjectile* Projectile = GetWorld()->SpawnActor<AProjectile>(ProjectileBlueprint, Barrel->GetSocketLocation(FName("Projectile")), Barrel->GetSocketRotation(FName("Projectile")));
+
+		Projectile->LaunchProjectile(LaunchSpeed);
+
+		LastFireTime = FPlatformTime::Seconds();
+	}
+}
+
+void ATrackedVehicle::AimAt(FVector HitLocation)
+{
+	if (TankAimingComponent)
+		TankAimingComponent->AimAt(HitLocation, LaunchSpeed);
 }
 
 bool ATrackedVehicle::VTraceSphere(AActor * ActorToIgnore, const FVector & Start, const FVector & End, const float Radius, FHitResult & HitOut, ECollisionChannel TraceChannel)
@@ -458,21 +553,23 @@ void ATrackedVehicle::PositionAndAnimateDriveWheels(UStaticMeshComponent* WheelC
 	WheelComponent->AddLocalRotation(FRotator(AngVel, 0, 0));
 }
 
-void ATrackedVehicle::UpdateThrottle()
+void ATrackedVehicle::UpdateThrottle(float DeltaTime)
 {
-	TrackTorqueTransferRight = FMath::Clamp<float>(WheelForwardCoefficient + WheelRightCoefficient, -1.f, 2.f);
-	TrackTorqueTransferLeft = FMath::Clamp<float>(WheelForwardCoefficient + WheelLeftCoefficient, -1.f, 2.f);
+	TrackTorqueTransferRight = FMath::Clamp<float>(WheelRightCoefficient + WheelForwardCoefficient, -1.f, 2.f);
+	TrackTorqueTransferLeft = FMath::Clamp<float>(WheelLeftCoefficient + WheelForwardCoefficient, -1.f, 2.f);
 
-	if (FMath::Max<float>(FMath::Abs<float>(TrackTorqueTransferRight), FMath::Abs<float>(TrackTorqueTransferLeft)) != 0.f)
+	float Max = FMath::Max<float>(TrackTorqueTransferLeft, TrackTorqueTransferRight);
+
+	if (Max != 0.f)
 	{
-		ThrottleIncrement = 0.f;
+		ThrottleIncrement = 0.5f;
 	}
 	else
 	{
 		ThrottleIncrement = -1.f;
 	}
 
-	Throttle = FMath::Clamp<float>(ThrottleIncrement*GetWorld()->GetDeltaSeconds() + Throttle, 0.f, 1.f);
+	Throttle = FMath::Clamp<float>(Throttle + ThrottleIncrement*DeltaTime, 0.f, 1.f);
 }
 
 void ATrackedVehicle::UpdateWheelsVelocity(float DeltaTime)
@@ -509,6 +606,8 @@ float ATrackedVehicle::GetEngineTorque(float RPM)
 	EngineTorqueCurve->GetTimeRange(minTime, maxTime);
 
 	EngineRPM = FMath::Clamp<float>(RPM, minTime, maxTime);
+
+	
 	return EngineTorqueCurve->GetFloatValue(EngineRPM) * 100;
 }
 
@@ -562,8 +661,8 @@ void ATrackedVehicle::UpdateAxleVelocity()
 
 void ATrackedVehicle::CalculateEngineAndUpdateDrive()
 {
-	EngineTorque = GetEngineTorque(GetEngineRPMFromAxle(AxleAngVel))*Throttle;
-
+	float CurrentEngineRPM = GetEngineRPMFromAxle(AxleAngVel);
+	EngineTorque = GetEngineTorque(CurrentEngineRPM)*Throttle;
 	DriveAxleTorque = GetGearBoxTorque(EngineTorque);
 
 	DriveRightTorque = TrackTorqueTransferRight * DriveAxleTorque;
@@ -584,7 +683,7 @@ void ATrackedVehicle::CountFrictionContactPoint(TArray<FSuspensionInternalProces
 	}
 }
 
-void ATrackedVehicle::ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, FVector DriveForceSide, float TrackLinearVelSide)
+void ATrackedVehicle::ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSide, FVector DriveForceSide)
 {
 	float TotalTrackFrictionTorque = 0.f, TrackFrictionTorque = 0.f, VehicleMass = 0.f, WheelLoadN = 0.f, TrackRollingFrictionTorque = 0.f, TotalTrackRollingFrictionTorque = 0.f, MuStatic = 0.f, MuKinetic = 0.f;
 	FVector RelativeTrackVel, FullStaticFrictionForce, FullStaticDriveForce, ApplicationForce, RollingFriction, FullDriveForceNorm, FullFrictionForceNorm, FrictionForceX, FrictionForceY, FullKineticFrictionForce, FullKineticDriveForce;
@@ -658,6 +757,7 @@ float ATrackedVehicle::GetVehicleMass()
 
 float ATrackedVehicle::GetGearBoxTorque(float EngineTorque)
 {
+	//UE_LOG(LogTemp, Warning, TEXT("CurrentGear: %i"), CurrentGear);
 	float Mul;
 	if (ReverseGear)
 		Mul = -1.f;
@@ -781,12 +881,14 @@ void ATrackedVehicle::TraceForSuspension(bool& BlockingHit, FVector& Location, F
 	}
 }
 
-bool ATrackedVehicle::AnimateTreadsMaterial() // Dummy?
+bool ATrackedVehicle::AnimateTreadsMaterial(float DeltaTime) // Dummy?
 {
-	TreadUVOffsetRight += (TrackRightLinVel*GetWorld()->GetDeltaSeconds()) / (TreadLength / TreadUvTiles);
-	TreadMaterialRight->GetScalarParameterValue(FName("UVOffset"), TreadUVOffsetRight);
-	TreadUVOffsetLeft += (TrackLeftLinVel*GetWorld()->GetDeltaSeconds()) / (TreadLength / TreadUvTiles);
-	TreadMaterialLeft->GetScalarParameterValue(FName("UVOffset"), TreadUVOffsetLeft);
+	TreadUVOffsetRight += (TrackRightLinVel*DeltaTime) / (TreadLength / TreadUvTiles);
+	TreadMaterialRight->SetScalarParameterValue(FName("UVOffset"), TreadUVOffsetRight);
+
+	TreadUVOffsetLeft += (TrackLeftLinVel*DeltaTime) / (TreadLength / TreadUvTiles);
+	TreadMaterialLeft->SetScalarParameterValue(FName("UVOffset"), TreadUVOffsetLeft);
+
 	return true;
 }
 
@@ -832,12 +934,14 @@ bool ATrackedVehicle::AnimateTreadsInstancedMesh(USplineComponent* SplineR, USpl
 		FTransform Transform = FTransform(FinalRotation, DistanceAlongSpline, FVector(1.f, 1.f, 1.f));
 
 		TreadsR->UpdateInstanceTransform(i, Transform, false, TreadsLastIndex == i, false);
+	}
 
-		// Left Tread
-
-		float LeftTreadNum = (SplineL->GetSplineLength() / TreadsOnSide)*i + TreadMeshOffsetLeft;
-		Remainder = FMath::Fmod(LeftTreadNum, SplineL->GetSplineLength());
-		Distance;
+	for (int i = 0; i <= TreadsLastIndex; i++)
+	{
+		// RightTread
+		float RightTreadNum = (SplineL->GetSplineLength() / TreadsOnSide)*i + TreadMeshOffsetRight;
+		float Remainder = FMath::Fmod(RightTreadNum, SplineL->GetSplineLength());
+		float Distance;
 
 		if (Remainder < 0.f)
 		{
@@ -848,20 +952,20 @@ bool ATrackedVehicle::AnimateTreadsInstancedMesh(USplineComponent* SplineR, USpl
 			Distance = Remainder;
 		}
 
-		DistanceAlongSpline = SplineL->GetLocationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
-		RotationAlongSpline = SplineL->GetRotationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
-		RightVectorAlongSpline = SplineL->GetRightVectorAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FVector DistanceAlongSpline = SplineL->GetLocationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FRotator RotationAlongSpline = SplineL->GetRotationAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
+		FVector RightVectorAlongSpline = SplineL->GetRightVectorAtDistanceAlongSpline(Distance, ESplineCoordinateSpace::Local);
 
-		RollOffset = 0.f;
+		float RollOffset = RotationAlongSpline.Roll;
 
 		if (RightVectorAlongSpline.Y < 0)
 		{
 			RollOffset = 180.f;
 		}
 
-		FinalRotation = FRotator(RotationAlongSpline.Pitch, RotationAlongSpline.Yaw, RotationAlongSpline.Roll + RollOffset);
+		FRotator FinalRotation = FRotator(RotationAlongSpline.Pitch, RotationAlongSpline.Yaw, RollOffset);
 
-		Transform = FTransform(FinalRotation, DistanceAlongSpline, FVector(1.f, 1.f, 1.f));
+		FTransform Transform = FTransform(FinalRotation, DistanceAlongSpline, FVector(1.f, 1.f, 1.f));
 
 		TreadsL->UpdateInstanceTransform(i, Transform, false, TreadsLastIndex == i, false);
 	}
@@ -872,24 +976,46 @@ bool ATrackedVehicle::AnimateTreadsInstancedMesh(USplineComponent* SplineR, USpl
 // Dummy?
 bool ATrackedVehicle::AnimateTreadsSplineControlPoints(UStaticMeshComponent* WheelMeshComponent, USplineComponent* TreadSplineComponent, int BottomCPIndex, int TopCPIndex, TArray<FVector>& SplineCoordinates, TArray<FSuspensionSetup> SuspensionSet, int SuspensionIndex)
 {
+	// Protect the arrays
 	if (SuspensionSet.Num() < SuspensionIndex + 1)
-		return false;
-
-	FTransform WheelTransform = WheelMeshComponent->GetRelativeTransform();
-
-	FVector Location = FVector(WheelTransform.GetLocation().X, SplineCoordinates[BottomCPIndex].Y, (WheelTransform.GetLocation().Z - SuspensionSet[SuspensionIndex].CollisionRadius)*TreadHalfThickness);
-	float Z = (WheelTransform.GetLocation().Z + SuspensionSet[SuspensionIndex].CollisionRadius)*TreadHalfThickness;
-
-	if (Z <= SplineCoordinates[TopCPIndex].Z)
 	{
-		Z = SplineCoordinates[TopCPIndex].Z;
+		UE_LOG(LogTemp, Error, TEXT("SuspensionSet not Set for %i!"), SuspensionIndex);
+		return false;
 	}
 
+	if (SplineCoordinates.Num() < BottomCPIndex + 1)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SplineCoordinates not set?"));
+		return false;
+	}
 
-	FVector Location2 = FVector(WheelTransform.GetLocation().X, SplineCoordinates[TopCPIndex].Y, Z);
+	if (SplineCoordinates.Num() < TopCPIndex + 1)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SplineCoordinates not set?"));
+		return false;
+	}
 
-	TreadSplineComponent->SetLocationAtSplinePoint(BottomCPIndex, Location, ESplineCoordinateSpace::Local, true);
-	
+	FVector WheelRelativeTransformLocation = WheelMeshComponent->GetRelativeTransform().GetLocation();
+	FVector BottomCPSplineCoordinate = SplineCoordinates[BottomCPIndex];
+	FVector TopCPSplineCoordinate = SplineCoordinates[TopCPIndex];
+	FSuspensionSetup CurrentSetup = SuspensionSet[SuspensionIndex];
+
+	FVector BottomCPSplineLocalLocation = FVector(WheelRelativeTransformLocation.X, BottomCPSplineCoordinate.Y, WheelRelativeTransformLocation.Z - CurrentSetup.CollisionRadius + TreadHalfThickness);
+
+	FVector TopCPSplineLocalLocation = FVector(WheelRelativeTransformLocation.X, TopCPSplineCoordinate.Y, 0);
+
+	if (WheelRelativeTransformLocation.Z + CurrentSetup.CollisionRadius - TreadHalfThickness > TopCPSplineCoordinate.Z)
+	{
+		TopCPSplineLocalLocation.Z = WheelRelativeTransformLocation.Z + CurrentSetup.CollisionRadius - TreadHalfThickness;
+	}
+	else
+	{
+		TopCPSplineLocalLocation.Z = TopCPSplineCoordinate.Z;
+	}
+
+	TreadSplineComponent->SetLocationAtSplinePoint(BottomCPIndex, BottomCPSplineLocalLocation, ESplineCoordinateSpace::Local, true);
+	TreadSplineComponent->SetLocationAtSplinePoint(TopCPIndex, TopCPSplineLocalLocation, ESplineCoordinateSpace::Local, true);
+
 	return false;
 }
 
@@ -897,20 +1023,24 @@ void ATrackedVehicle::ShiftGear(int ShiftUpOrDown)
 {
 	if (AutoGearBox)
 	{
-		int minGear = NeutralGearIndex + 1;
-		int maxGear = 7;
-
+		int min, max;
 		if (ReverseGear)
 		{
-			minGear = 0;
-			maxGear = NeutralGearIndex - 1;
+			min = 0;
+			max = NeutralGearIndex - 1;
+		}
+		else
+		{
+			min = NeutralGearIndex + 1;
+			max = GearRatio.Num() - 1;
 		}
 
-		CurrentGear = FMath::Clamp<int>(CurrentGear + ShiftUpOrDown, minGear, maxGear);
+
+		CurrentGear = FMath::Clamp<int>(CurrentGear + ShiftUpOrDown, min, max);
 	}
 	else
 	{
-		CurrentGear = FMath::Clamp<int>(CurrentGear + ShiftUpOrDown, 0, 7);
+		CurrentGear = FMath::Clamp<int>(CurrentGear + ShiftUpOrDown, 0, GearRatio.Num() - 1);
 
 		ReverseGear = !(CurrentGear >= NeutralGearIndex);
 	}
@@ -918,33 +1048,35 @@ void ATrackedVehicle::ShiftGear(int ShiftUpOrDown)
 
 void ATrackedVehicle::UpdateAutoGearBox()
 {
+	float MinTime;
+	float MaxTime;
+	EngineTorqueCurve->GetTimeRange(MinTime, MaxTime);
+
+	float MagicNumber = (EngineRPM - MinTime) / (MaxTime - MinTime);
+
 	if (AutoGearBox && Throttle > 0.f)
 	{
 		if (AxleAngVel > LastAutoGearBoxAxleCheck)
 		{
-			float MaxTime, MinTime;
-			EngineTorqueCurve->GetTimeRange(MinTime, MaxTime);
-
-			if ((EngineRPM - MinTime) / (MaxTime - MinTime) >= GearUpShiftPrc)
+			if (MagicNumber >= GearUpShiftPrc)
 			{
-				int ShiftUpDown = 1;
 				if (ReverseGear)
-					ShiftUpDown = -1;
-				ShiftGear(ShiftUpDown);
+					ShiftGear(-1);
+				else
+					ShiftGear(1);
+
 				LastAutoGearBoxAxleCheck = AxleAngVel;
 			}
 		}
-		if (AxleAngVel < LastAutoGearBoxAxleCheck)
+		else
 		{
-			float MaxTime, MinTime;
-			EngineTorqueCurve->GetTimeRange(MinTime, MaxTime);
-
-			if ((EngineRPM - MinTime) / (MaxTime - MinTime) < GearDownShiftPrc)
+			if (MagicNumber < GearDownShiftPrc)
 			{
-				int ShiftUpDown = -1;
 				if (ReverseGear)
-					ShiftUpDown = 1;
-				ShiftGear(ShiftUpDown);
+					ShiftGear(1);
+				else
+					ShiftGear(-1);
+
 				LastAutoGearBoxAxleCheck = AxleAngVel;
 			}
 		}
@@ -955,7 +1087,7 @@ void ATrackedVehicle::SetRemoveAutoGearBox(bool ShouldSetTimer)
 {
 	if (ShouldSetTimer)
 	{
-		GetWorld()->GetTimerManager().SetTimer(AutoGearBoxTimerHandle, this, &ATrackedVehicle::UpdateAutoGearBox, false);
+		GetWorld()->GetTimerManager().SetTimer(AutoGearBoxTimerHandle, this, &ATrackedVehicle::UpdateAutoGearBox, 0.5f, true);
 	}
 	else
 	{
@@ -967,45 +1099,48 @@ void ATrackedVehicle::GetThrottleInputForAutoHandling(float InputVehicleLeftRigh
 {
 	float AxisInputValue = InputVehicleForwardBackward;
 	FTransform ActorTransform = GetActorTransform();
-	FVector Velocity = ActorTransform.InverseTransformVector(GetVelocity());
+	FVector Velocity = GetVelocity();
+	FVector InvTransformVelocity = ActorTransform.InverseTransformVector(Velocity);
 
-	// Forward/backward is not pressed
 	if (AxisInputValue != 0.f)
 	{
+		// Forward-Backward is pressed
+
 		// Are we moving?
-		if (Velocity.Size() > 10)
+
+		if (InvTransformVelocity.Size() > 10.f)
 		{
+			// We are moving...
+			
 			// Is forward pressed?
-			if (FMath::Sign<float>(AxisInputValue) > 0.f)
+			if (FMath::Sign(AxisInputValue) > 0.f)
 			{
 				// We are moving forward with forward pressed
-				if (FMath::Sign<float>(ActorTransform.GetLocation().X) > 0)
+
+				if (FMath::Sign(InvTransformVelocity.X) > 0.f)
 				{
-					// Forward
+					// Move forward!
 					ReverseGear = false;
 					ShiftGear(0);
-					BrakeRatioRight = 0.f;
 					BrakeRatioLeft = 0.f;
+					BrakeRatioRight = 0.f;
 					WheelForwardCoefficient = FMath::Abs(AxisInputValue);
+
+					//UE_LOG(LogTemp, Warning, TEXT("We are moving forward, WheelForwardCoefficient: %f"), WheelForwardCoefficient);
 				}
 				else
 				{
-					// Brake
-					BrakeRatioRight = FMath::Abs(AxisInputValue);
 					BrakeRatioLeft = FMath::Abs(AxisInputValue);
-
+					BrakeRatioRight = FMath::Abs(AxisInputValue);
 					WheelForwardCoefficient = 0.f;
 				}
 			}
 			else
 			{
-				// We are moving forward with backward pressed
-				if (FMath::Sign<float>(ActorTransform.GetLocation().X) > 0)
+				if (FMath::Sign(InvTransformVelocity.X) > 0)
 				{
-					// Brake
-					BrakeRatioRight = FMath::Abs(AxisInputValue);
 					BrakeRatioLeft = FMath::Abs(AxisInputValue);
-
+					BrakeRatioRight = FMath::Abs(AxisInputValue);
 					WheelForwardCoefficient = 0.f;
 				}
 				else
@@ -1013,53 +1148,56 @@ void ATrackedVehicle::GetThrottleInputForAutoHandling(float InputVehicleLeftRigh
 					ReverseGear = true;
 					ShiftGear(0);
 
-					BrakeRatioRight = 0.f;
 					BrakeRatioLeft = 0.f;
+					BrakeRatioRight = 0.f;
 					WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 				}
 			}
 		}
 		else
 		{
-			// Not moving yet but forward/backward is pressed
+			// We are not moving
+
 			if (FMath::Sign(AxisInputValue) > 0.f)
 			{
-				// Forward
 				ReverseGear = false;
 				ShiftGear(0);
-
-				ShiftGear(0);
-				BrakeRatioRight = 0.f;
 				BrakeRatioLeft = 0.f;
+				BrakeRatioRight = 0.f;
 				WheelForwardCoefficient = FMath::Abs(AxisInputValue);
+
+				//UE_LOG(LogTemp, Warning, TEXT("We are moving forward, WheelForwardCoefficient: %f, CurrentGear: %f"), WheelForwardCoefficient, CurrentGear);
 			}
 			else
 			{
 				ReverseGear = true;
 				ShiftGear(0);
 
-				BrakeRatioRight = 0.f;
 				BrakeRatioLeft = 0.f;
+				BrakeRatioRight = 0.f;
 				WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 			}
 		}
 	}
 	else
 	{
-		// No throttle but maybe we are steering
-		if (InputVehicleLeftRight != 0.f && !(Velocity.Size() > 10))
+		// No throttle, but maybe we are steering
+		if (InputVehicleLeftRight != 0.f && !(InvTransformVelocity.Size() > 10.f))
 		{
-			// We are steering without throttle and not rolling
 			ReverseGear = false;
 			ShiftGear(0);
+
 			BrakeRatioRight = 0.f;
 			BrakeRatioLeft = 0.f;
+
 			WheelForwardCoefficient = FMath::Abs(AxisInputValue);
+
 		}
 		else
 		{
 			BrakeRatioRight = 0.f;
 			BrakeRatioLeft = 0.f;
+
 			WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 		}
 	}

@@ -7,6 +7,11 @@
 #include "TrackedVehicle.generated.h"
 
 class ACarriage;
+class UTankAimingComponent;
+class UTankBarrel;
+class UTankTurret;
+class UTankMovementComponent;
+class AProjectile;
 
 USTRUCT(BlueprintType)
 struct FSuspensionInternalProcessing
@@ -91,7 +96,7 @@ private:
 	void TotalSuspensionForce();
 	void AddGravity();
 	void PositionAndAnimateDriveWheels(UStaticMeshComponent* WheelComponent, FSuspensionInternalProcessing SuspensionSet, int SuspensionIndex, Side side, bool FlipAnimation180Degrees);
-	void UpdateThrottle();
+	void UpdateThrottle(float DeltaTime);
 	void UpdateWheelsVelocity(float DeltaTime);
 	float GetWheelAccelerationFromEngineTorque(float Torque);
 	void ApplyDrag();
@@ -100,7 +105,7 @@ private:
 	void UpdateAxleVelocity();
 	void CalculateEngineAndUpdateDrive();
 	void CountFrictionContactPoint(TArray<FSuspensionInternalProcessing> SuspSide);
-	void ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, FVector DriveForceSide, float TrackLinearVelSide);
+	void ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSide, FVector DriveForceSide);
 	float GetVehicleMass();
 	float GetGearBoxTorque(float EngineTorque);
 	float GetEngineRPMFromAxle(float AxleAngVel);
@@ -113,7 +118,7 @@ private:
 	void TraceForSuspension(bool& BlockingHit, FVector& Location, FVector& ImpactPoint, FVector& ImpactNormal, EPhysicalSurface& SurfaceType, UPrimitiveComponent* Component, FVector Start, FVector End, float Radius);
 	FORCEINLINE bool VTraceSphere(AActor * ActorToIgnore, const FVector & Start, const FVector & End, const float Radius, FHitResult & HitOut, ECollisionChannel TraceChannel);
 	
-	virtual bool AnimateTreadsMaterial();
+	virtual bool AnimateTreadsMaterial(float DeltaTime);
 	bool AnimateTreadsInstancedMesh(USplineComponent* SplineR, USplineComponent* SplineL, UInstancedStaticMeshComponent* TreadsR, UInstancedStaticMeshComponent* TreadsL);
 	bool AnimateTreadsSplineControlPoints(UStaticMeshComponent* WheelMeshComponent, USplineComponent* TreadSplineComponent, int BottomCPIndex, int TopCPIndex, TArray<FVector>& SplineCoordinates, TArray<FSuspensionSetup> SuspensionSet, int SuspensionIndex);
 	void ShiftGear(int ShiftUpOrDown);
@@ -122,7 +127,14 @@ private:
 	void GetThrottleInputForAutoHandling(float InputVehicleLeftRight, float InputVehicleForwardBackward);
 	void GetGearBoxInfo(int& GearNum, bool& ReverseGear, bool& Automatic);
 	void GetMuFromFrictionElipse(float& Mu_Static, float& Mu_Kinetic, FVector VelocityDirectionNormalized, FVector ForwardVector, float Mu_X_Static, float Mu_Y_Static, float Mu_X_Kinetic, float Mu_Y_Kinetic);
-	
+
+	// Local barrel reference for spawning projectile
+	UTankBarrel* Barrel = nullptr;
+
+	float ReloadTimeInSeconds = 3.f;
+	double LastFireTime = 0;
+
+	float AxisValueY = 0.f;
 public:
 	// Sets default values for this pawn's properties
 	ATrackedVehicle();
@@ -138,6 +150,26 @@ public:
 
 	UFUNCTION()
 	void ForwardBackward(float AxisValue);
+
+	UFUNCTION()
+	void LeftRight(float AxisValue);
+
+	UFUNCTION(BlueprintCallable, Category = "Set the barrel reference")
+	void SetBarrelReference(UTankBarrel* BarrelToSet);
+
+	UFUNCTION(BlueprintCallable, Category = "Set the turret reference")
+	void SetTurretReference(UTankTurret* TurretToSet);
+
+	UFUNCTION(BlueprintCallable, Category = "Fire the weapon")
+	void Fire();
+
+	void AimAt(FVector HitLocation);
+
+	UPROPERTY(EditDefaultsOnly, Category = "Firing")
+	float LaunchSpeed = 4000.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Set the projectile class")
+	TSubclassOf<AProjectile> ProjectileBlueprint = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Instanced Components")
 	UStaticMeshComponent* Body = nullptr;
@@ -326,11 +358,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Internals")
 	TEnumAsByte<AutoForwardInput> AutoForwardHandle = AutoForwardInput::Fwd;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Internals")
-	int NeutralGearIndex = 0;
-
-
-
-
+	int NeutralGearIndex = 1;
 
 	// Instanced Stuff...
 	UPROPERTY(BlueprintReadWrite, Category = "Setup")
@@ -353,4 +381,6 @@ public:
 	TArray<UStaticMeshComponent*> LeftWheels;
 
 	bool DebugMode = false;
+protected:
+	UTankAimingComponent* TankAimingComponent = nullptr;
 };

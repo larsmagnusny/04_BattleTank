@@ -3,7 +3,6 @@
 #include "BattleTank.h"
 #include "Tank.h"
 #include "TankAimingComponent.h"
-#include "TankMovementComponent.h"
 #include "TankBarrel.h"
 #include "TankTurret.h"
 #include "Projectile.h"
@@ -13,15 +12,6 @@
 ATank::ATank()
 {
 	TankAimingComponent = CreateDefaultSubobject<UTankAimingComponent>(FName("Aiming Component"));
-	TankMovementComponent = CreateDefaultSubobject <UTankMovementComponent>(FName("Movement Component"));
-	// Create the colliders for the track
-	/*for (int i = 1; i <= 95; i++)
-	{
-		FString name = "J" + FString::FromInt(i);
-		UCapsuleComponent* Comp = CreateDefaultSubobject<UCapsuleComponent>(FName(*name));
-
-		TrackColliders.Add(Comp);
-	}*/
 }
 
 // Called when the game starts or when spawned
@@ -49,17 +39,6 @@ void ATank::SetTurretReference(UTankTurret * TurretToSet)
 {
 	if (TankAimingComponent)
 		TankAimingComponent->SetTurretReference(TurretToSet);
-}
-
-void ATank::SetSkeletalMeshComponentReference(USkeletalMeshComponent * Component, TArray<FName> Bones)
-{
-	TankMovementComponent->SkeletalMeshComponent = Component;
-	TankMovementComponent->Bones = Bones;
-}
-
-void ATank::AddThrust(float AxisValue)
-{
-	TankMovementComponent->AddThrust(AxisValue);
 }
 
 void ATank::Fire()
