@@ -93,8 +93,8 @@ void ATrackedVehicle::Tick( float DeltaTime ) // TODO DoubleCheck tick function 
 		CountFrictionContactPoint(SuspensionsInternalRight);
 		CountFrictionContactPoint(SuspensionsInternalLeft);
 
-		ApplyDriveForceAndGetFrictionForceOnSide(TrackFrictionTorqueRight, TrackRollingFrictionTorqueRight, SuspensionsInternalRight, TrackRightLinVel, DriveRightForce);
-		ApplyDriveForceAndGetFrictionForceOnSide(TrackFrictionTorqueLeft, TrackRollingFrictionTorqueLeft, SuspensionsInternalLeft, TrackLeftLinVel, DriveLeftForce);
+		ApplyDriveForceAndGetFrictionForceOnSide(TrackFrictionTorqueRight, TrackRollingFrictionTorqueRight, SuspensionsInternalRight, TrackRightLinVel, DriveRightForce, DeltaTime);
+		ApplyDriveForceAndGetFrictionForceOnSide(TrackFrictionTorqueLeft, TrackRollingFrictionTorqueLeft, SuspensionsInternalLeft, TrackLeftLinVel, DriveLeftForce, DeltaTime);
 
 		//SpawnDust(SuspensionsInternalRight, this->TrackRightLinVel);
 		//SpawnDust(SuspensionsInternalLeft, this->TrackLeftLinVel);
@@ -113,18 +113,17 @@ void ATrackedVehicle::SetupPlayerInputComponent(class UInputComponent* InputComp
 {
 	Super::SetupPlayerInputComponent(InputComponent);
 
-	InputComponent->BindAxis(FName("FWD"), this, &ATrackedVehicle::ForwardBackward);
-	InputComponent->BindAxis(FName("Rotate"), this, &ATrackedVehicle::LeftRight);
+	//InputComponent->BindAxis(FName("FWD"), this, &ATrackedVehicle::ForwardBackward);
+	//InputComponent->BindAxis(FName("Rotate"), this, &ATrackedVehicle::LeftRight);
+}
+
+FVector ATrackedVehicle::GetCenterOfMass()
+{
+	return Body->GetCenterOfMass();
 }
 
 void ATrackedVehicle::ForwardBackward(float AxisValue)
 {
-	//float AxisValueY = GetWorld()->GetFirstPlayerController()->InputComponent->GetAxisValue(FName("Rotate"));
-	/*UE_LOG(LogTemp, Warning, TEXT("AxisValueX: %f, AxisValueY: %f"), AxisValue, AxisValueY);
-	UE_LOG(LogTemp, Warning, TEXT("TrackRightAngVel: %f, TrackLeftAngVel: %f"), TrackRightAngVel, TrackLeftAngVel);
-	UE_LOG(LogTemp, Warning, TEXT("TrackRightTorque: %f, TrackLeftTorque: %f"), TrackRightTorque, TrackLeftTorque);
-	UE_LOG(LogTemp, Warning, TEXT("TrackFrictionTorqueRight: %f, TrackFrictionTorqueLeft: %f"), TrackFrictionTorqueRight, TrackFrictionTorqueLeft);
-	UE_LOG(LogTemp, Warning, TEXT("BrakeRatioRight: %f, BrakeRatioLeft: %f"), BrakeRatioRight, BrakeRatioLeft);*/
 	if (AutoGearBox)
 	{
 		GetThrottleInputForAutoHandling(AxisValueY, AxisValue);
@@ -331,15 +330,27 @@ void ATrackedVehicle::CheckWheelCollision(int SuspIndex, float DeltaTime, TArray
 
 	FVector SuspWorldLocation = ActorTransform.TransformPosition(SuspensionArray[SuspIndex].RootLoc);
 
-	bool BlockingHit = false;
-	FVector Location;
-	FVector ImpactPoint;
-	FVector ImpactNormal;
-	EPhysicalSurface SurfaceType;
-	UPrimitiveComponent* CollisionPrimitive = nullptr;
+	FHitResult Hit;
 
 	// TODO check if this is the reason for wonky physics...
-	TraceForSuspension(BlockingHit, Location, ImpactPoint, ImpactNormal, SurfaceType, CollisionPrimitive, SuspWorldLocation, SuspWorldLocation + SuspWorldZVector*(-1.f)*SuspLength, SuspensionArray[SuspIndex].Radius);
+	TraceForSuspension(Hit, SuspWorldLocation, SuspWorldLocation + SuspWorldZVector*(-1.f)*SuspLength, SuspensionArray[SuspIndex].Radius);
+
+	bool BlockingHit = Hit.bBlockingHit;
+	FVector Location = Hit.Location;
+	FVector ImpactPoint = Hit.ImpactPoint;
+	FVector ImpactNormal = Hit.ImpactNormal;
+	EPhysicalSurface SurfaceType;
+	if (Hit.PhysMaterial.Get())
+	{
+		SurfaceType = Hit.PhysMaterial.Get()->SurfaceType;
+	}
+
+	UPrimitiveComponent* CollisionPrimitive = nullptr;
+
+	if (Hit.GetComponent())
+	{
+		CollisionPrimitive = Hit.GetComponent();
+	}
 
 	if (BlockingHit)
 	{
@@ -415,7 +426,7 @@ FVector ATrackedVehicle::GetVelocityAtPoint(FVector PointLoc)
 {
 	FVector LinVel = Body->GetPhysicsLinearVelocity();
 	FVector AngVel = Body->GetPhysicsAngularVelocity();
-	FVector CenterOfMass = Body->GetCenterOfMass();
+	FVector CenterOfMass = GetCenterOfMass();
 
 	FTransform Transform = FTransform(GetActorRotation(), CenterOfMass, GetActorScale3D());
 
@@ -511,7 +522,12 @@ bool ATrackedVehicle::PutToSleep()
 FVector ATrackedVehicle::GetVelocityAtPointWorld(FVector PointLoc)
 {
 	FTransform ActorTransform = GetActorTransform();
-	FVector ResVel = ActorTransform.InverseTransformVector(Body->GetPhysicsLinearVelocity()) + FVector::CrossProduct(ActorTransform.InverseTransformVector(Body->GetPhysicsAngularVelocity())*(0.01745329252f), (ActorTransform.InverseTransformPosition(PointLoc) - ActorTransform.InverseTransformPosition(Body->GetCenterOfMass())));
+	FVector PlaneLocalVelocity = ActorTransform.InverseTransformVector(Body->GetPhysicsLinearVelocity());
+	FVector PlaneAngularVelocity = ActorTransform.InverseTransformVector(Body->GetPhysicsAngularVelocity());
+	FVector CenterOfMass = ActorTransform.InverseTransformPosition(GetCenterOfMass());
+	FVector Location = ActorTransform.InverseTransformPosition(PointLoc);
+
+	FVector ResVel = PlaneLocalVelocity + (PlaneAngularVelocity*0.0174532925f*(Location - CenterOfMass));
 
 	return ActorTransform.TransformVector(ResVel);
 }
@@ -683,64 +699,64 @@ void ATrackedVehicle::CountFrictionContactPoint(TArray<FSuspensionInternalProces
 	}
 }
 
-void ATrackedVehicle::ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSide, FVector DriveForceSide)
+void ATrackedVehicle::ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSide, FVector DriveForceSide, float DeltaTime)
 {
-	float TotalTrackFrictionTorque = 0.f, TrackFrictionTorque = 0.f, VehicleMass = 0.f, WheelLoadN = 0.f, TrackRollingFrictionTorque = 0.f, TotalTrackRollingFrictionTorque = 0.f, MuStatic = 0.f, MuKinetic = 0.f;
+	float MaxTransferForceX = 0, TrackTractionTorque = 0, TotalTrackFrictionTorque = 0, TrackFrictionTorque = 0, VehicleMass = 0, WheelLoadN = 0, MaxTransferForceY = 0, TrackRollingFrictionTorque = 0, TotalTrackRollingFrictionTorque = 0, MuStatic = 0, MuKinetic = 0;
 	FVector RelativeTrackVel, FullStaticFrictionForce, FullStaticDriveForce, ApplicationForce, RollingFriction, FullDriveForceNorm, FullFrictionForceNorm, FrictionForceX, FrictionForceY, FullKineticFrictionForce, FullKineticDriveForce;
-	for (FSuspensionInternalProcessing Susp : SuspensionSide)
+
+	for (FSuspensionInternalProcessing Suspension : SuspensionSide)
 	{
-		if (Susp.Engaged)
+		if(Suspension.Engaged)
 		{
-			WheelLoadN = Susp.SuspensionForce.ProjectOnTo(Susp.WheelCollisionNormal).Size();
+			WheelLoadN = Suspension.SuspensionForce.ProjectOnTo(Suspension.WheelCollisionNormal).Size();
 
-			FVector SlideVel = (GetVelocityAtPointWorld(Susp.WheelCollisionLocation) - GetActorForwardVector()*TrackLinearVelSide);
-			RelativeTrackVel = FVector::VectorPlaneProject(SlideVel, Susp.WheelCollisionNormal);
-
-			// TODO check if this works...
+			// Get calculate the relative track velocity
+			RelativeTrackVel = FVector::VectorPlaneProject(GetVelocityAtPointWorld(Suspension.WheelCollisionLocation) - (GetActorForwardVector()*TrackLinearVelSide), Suspension.WheelCollisionNormal);
+			
 			GetMuFromFrictionElipse(MuStatic, MuKinetic, RelativeTrackVel.GetSafeNormal(), GetActorForwardVector(), Mu_X_Static, Mu_Y_Static, Mu_X_Kinetic, Mu_Y_Kinetic);
 
 			VehicleMass = GetVehicleMass();
 
-			FVector UnProjectedSlide = RelativeTrackVel*(-1)*VehicleMass / GetWorld()->GetDeltaSeconds() / TotNumFrictionPoints;
+			FVector ProjectedForwardVector = FVector::VectorPlaneProject(GetActorForwardVector(), Suspension.WheelCollisionNormal).GetSafeNormal();
+			FVector ProjectedRightVector = FVector::VectorPlaneProject(GetActorRightVector(), Suspension.WheelCollisionNormal).GetSafeNormal();
 
-			FVector ProjectedForwardVector = FVector::VectorPlaneProject(GetActorForwardVector(), Susp.WheelCollisionNormal).GetSafeNormal();
-			FVector ProjectedRightVector = FVector::VectorPlaneProject(GetActorRightVector(), Susp.WheelCollisionNormal).GetSafeNormal();
+			FVector RelativeTrackVelPerFrame = ((RelativeTrackVel*(-1)*VehicleMass) / DeltaTime) / TotNumFrictionPoints;
 
-			FVector a = UnProjectedSlide.ProjectOnTo(ProjectedForwardVector);
-			FVector b = UnProjectedSlide.ProjectOnTo(ProjectedRightVector);
+			FVector ProjectedXTrackVelPerFrame = RelativeTrackVelPerFrame.ProjectOnTo(ProjectedForwardVector);
+			FVector ProjectedYTrackVelPerFrame = RelativeTrackVelPerFrame.ProjectOnTo(ProjectedRightVector);
 
-			FullStaticFrictionForce = a*Mu_X_Static + b*Mu_Y_Static;
-			FullKineticFrictionForce = a*Mu_X_Kinetic + b*Mu_Y_Kinetic;
+			FullStaticFrictionForce = ProjectedXTrackVelPerFrame*Mu_X_Static + ProjectedYTrackVelPerFrame*Mu_Y_Static;
+			FullKineticFrictionForce = ProjectedXTrackVelPerFrame*Mu_X_Kinetic + ProjectedYTrackVelPerFrame*Mu_Y_Kinetic;
 
-			FVector DriveForceTransmissionTorque = FVector::VectorPlaneProject(DriveForceSide, Susp.WheelCollisionNormal);
+			// Drive force from transmission torque
+			FVector PlaneProjectedDriveForce = FVector::VectorPlaneProject(DriveForceSide, Suspension.WheelCollisionNormal);
 
-			FullStaticDriveForce = DriveForceTransmissionTorque*Mu_X_Static;
-			FullKineticDriveForce = DriveForceTransmissionTorque*Mu_X_Kinetic;
+			FullStaticDriveForce = PlaneProjectedDriveForce*Mu_X_Static;
+			FullKineticDriveForce = PlaneProjectedDriveForce*Mu_X_Kinetic;
 
-			if ((FullStaticFrictionForce + FullStaticDriveForce).Size() >= WheelLoadN*MuStatic)
+			FVector CombinedStaticFrictionForce = FullStaticFrictionForce + FullStaticDriveForce;
+			FVector CombinedKineticFrictionForce = FullKineticFrictionForce + FullKineticDriveForce;
+
+			if (CombinedStaticFrictionForce.Size() >= WheelLoadN*MuStatic)
 			{
 				FullFrictionForceNorm = FullKineticFrictionForce.GetSafeNormal();
-				ApplicationForce = (FullKineticFrictionForce + FullKineticDriveForce).ClampSize(0, WheelLoadN*MuKinetic);
-
-				DrawDebugString(GetWorld(), Susp.WheelCollisionLocation, "KineticFriction", nullptr, FLinearColor(1.f, 0.041f, 0.415f).ToFColor(true), 0.f);
+				ApplicationForce = CombinedKineticFrictionForce.GetClampedToSize(0.f, WheelLoadN*MuKinetic);
 			}
 			else
 			{
 				FullFrictionForceNorm = FullStaticFrictionForce.GetSafeNormal();
-				ApplicationForce = (FullStaticFrictionForce + FullStaticDriveForce).ClampSize(0, WheelLoadN*MuStatic);
-
-				DrawDebugString(GetWorld(), Susp.WheelCollisionLocation, "StaticFriction", nullptr, FLinearColor(1.f, 0.057f, 0.f).ToFColor(true), 0.f);
+				ApplicationForce = CombinedStaticFrictionForce.GetClampedToSize(0.f, WheelLoadN*MuStatic);
 			}
 
-			Body->AddForceAtLocation(ApplicationForce, Susp.WheelCollisionLocation);
+			Body->AddForceAtLocation(ApplicationForce, Suspension.WheelCollisionLocation);
+			DrawDebugLine(GetWorld(), Suspension.WheelCollisionLocation, Suspension.WheelCollisionLocation + ApplicationForce*0.001f, FLinearColor(0.f, 0.501f, 0.515f).ToFColor(true), false, 0.f, 0, 10.f);
 
-			DrawDebugLine(GetWorld(), Susp.WheelCollisionLocation, Susp.WheelCollisionLocation + ApplicationForce*0.001f, FLinearColor(0.f, 0.5f, 0.5f).ToFColor(true), false, -1.f, 0, 10);
+			FVector TransmissionAffector = (ApplicationForce.ProjectOnTo(FullFrictionForceNorm)*(TrackMassKg+SprocketMassKg)*(-1)) / VehicleMass;
 
-			TrackFrictionTorque = GetActorTransform().TransformVector((ApplicationForce.ProjectOnTo(FullFrictionForceNorm) / VehicleMass)*(TrackMassKg + SprocketMassKg)*(-1)).ProjectOnTo(FVector(1.f, 0.f, 0.f)).X * SprocketRadiusCm;
-			
-			// Tracklinearvelslide
-			TrackRollingFrictionTorque = WheelLoadN*RollingFrictionCoef*FMath::Sign(TrackLinearVelSide)*(-1) + FMath::Sign(TrackLinearVelSide)*FMath::Abs(TrackLinearVelSide)*0.000015f*WheelLoadN;
-		
+			TrackFrictionTorque = GetActorTransform().InverseTransformVector(TransmissionAffector).ProjectOnTo(FVector(1.f, 0.f, 0.f)).X*SprocketRadiusCm;
+
+			TrackRollingFrictionTorque = (WheelLoadN*RollingFrictionCoef*FMath::Sign(TrackLinearVelSide)*(-1)) + (FMath::Sign(TrackLinearVelSide)*(-1)*FMath::Abs(TrackLinearVelSide)*0.000015f*WheelLoadN);
+
 			TotalTrackFrictionTorque += TrackFrictionTorque;
 			TotalTrackRollingFrictionTorque += TrackRollingFrictionTorque;
 		}
@@ -774,10 +790,12 @@ float ATrackedVehicle::GetEngineRPMFromAxle(float AxleAngVel)
 
 float ATrackedVehicle::ApplyBrake(float AngVel_In, float BrakeRatio, float DeltaTime)
 {
+	float FrameBreakForce = BrakeRatio*BrakeForce*DeltaTime;
 	float NewVel;
-	if (FMath::Abs<float>(AngVel_In) > FMath::Abs<float>(BrakeRatio*BrakeForce*DeltaTime))
+
+	if (FMath::Abs(AngVel_In) > FMath::Abs(FrameBreakForce))
 	{
-		NewVel = AngVel_In - (BrakeRatio*BrakeForce*DeltaTime*FMath::Sign(AngVel_In));
+		NewVel = AngVel_In - FrameBreakForce*FMath::Sign(AngVel_In);
 	}
 	else
 	{
@@ -854,31 +872,13 @@ void ATrackedVehicle::SpawnDust(TArray < FSuspensionInternalProcessing> Suspensi
 	}
 }
 
-void ATrackedVehicle::TraceForSuspension(bool& BlockingHit, FVector& Location, FVector& ImpactPoint, FVector& ImpactNormal, EPhysicalSurface& SurfaceType, UPrimitiveComponent* Component, FVector Start, FVector End, float Radius)
+void ATrackedVehicle::TraceForSuspension(FHitResult& OutHit, FVector Start, FVector End, float Radius)
 {
-	FHitResult Hit;
-
 	TArray<AActor*> ActorsToIgnore;
 	ActorsToIgnore.Add(this);
 
 	
-	if (UKismetSystemLibrary::SphereTraceSingle_NEW(GetWorld(), Start, End, Radius, UEngineTypes::ConvertToTraceType(ECollisionChannel::ECC_Visibility), false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, Hit, true))
-	{
-		BlockingHit = Hit.bBlockingHit;
-		Location = Hit.Location;
-		ImpactPoint = Hit.ImpactPoint;
-		ImpactNormal = Hit.ImpactNormal;
-		Component = Hit.GetComponent();
-
-		if (Hit.PhysMaterial.Get() != nullptr)
-		{
-			SurfaceType = Hit.PhysMaterial.Get()->SurfaceType;
-		}
-	}
-	else
-	{
-		BlockingHit = false;
-	}
+	UKismetSystemLibrary::SphereTraceSingle_NEW(GetWorld(), Start, End, Radius, UEngineTypes::ConvertToTraceType(ECollisionChannel::ECC_Visibility), false, ActorsToIgnore, EDrawDebugTrace::ForOneFrame, OutHit, true);
 }
 
 bool ATrackedVehicle::AnimateTreadsMaterial(float DeltaTime) // Dummy?
@@ -1098,106 +1098,102 @@ void ATrackedVehicle::SetRemoveAutoGearBox(bool ShouldSetTimer)
 void ATrackedVehicle::GetThrottleInputForAutoHandling(float InputVehicleLeftRight, float InputVehicleForwardBackward)
 {
 	float AxisInputValue = InputVehicleForwardBackward;
-	FTransform ActorTransform = GetActorTransform();
-	FVector Velocity = GetVelocity();
-	FVector InvTransformVelocity = ActorTransform.InverseTransformVector(Velocity);
+	FVector LocalVelocity = GetActorTransform().InverseTransformVector(GetVelocity());
+	bool ForwardBackwardPressed = InputVehicleForwardBackward != 0;
+	bool IsVehicleMoving = LocalVelocity.Size() > 10;
+	bool IsForwardPressed = FMath::Sign(AxisInputValue) > 0.f;
+	bool IsBackwardPressed = FMath::Sign(AxisInputValue) < 0.f;
+	bool ForwardMovementWithForwardPressed = FMath::Sign(LocalVelocity.X) > 0.f && IsForwardPressed;
+	bool AreWeSteeringWithNoMovement = InputVehicleLeftRight != 0.f && !(IsVehicleMoving);
+	
+	//UE_LOG(LogTemp, Warning, TEXT("AxisInputValue: %f, ForwardBackwardPressed: %i, IsVehicleMoving: %i, IsForwardPressed: %i, ForwardMovementPressed: %i, AreWeSteeringStill: %i"), AxisInputValue, (int)ForwardBackwardPressed, (int)IsVehicleMoving, (int)IsForwardPressed, (int)ForwardMovementWithForwardPressed, (int)AreWeSteeringWithNoMovement);
+	//UE_LOG(LogTemp, Warning, TEXT("WheelRightCoef: %f, WheelLeftCoef: %f"), WheelRightCoefficient, WheelLeftCoefficient);
 
-	if (AxisInputValue != 0.f)
+	UE_LOG(LogTemp, Warning, TEXT("Right AngularVelocity: %f, Left AngularVelocity: %f"), TrackRightAngVel, TrackLeftAngVel);
+
+	if (ForwardBackwardPressed)
 	{
-		// Forward-Backward is pressed
-
-		// Are we moving?
-
-		if (InvTransformVelocity.Size() > 10.f)
+		if (IsVehicleMoving)
 		{
-			// We are moving...
-			
-			// Is forward pressed?
-			if (FMath::Sign(AxisInputValue) > 0.f)
+			if (IsForwardPressed)
 			{
-				// We are moving forward with forward pressed
-
-				if (FMath::Sign(InvTransformVelocity.X) > 0.f)
+				if (ForwardMovementWithForwardPressed)
 				{
-					// Move forward!
 					ReverseGear = false;
 					ShiftGear(0);
-					BrakeRatioLeft = 0.f;
-					BrakeRatioRight = 0.f;
-					WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 
-					//UE_LOG(LogTemp, Warning, TEXT("We are moving forward, WheelForwardCoefficient: %f"), WheelForwardCoefficient);
+					BrakeRatioRight = 0.f;
+					BrakeRatioLeft = 0.f;
+					WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 				}
 				else
 				{
-					BrakeRatioLeft = FMath::Abs(AxisInputValue);
-					BrakeRatioRight = FMath::Abs(AxisInputValue);
+					float BrakeRatio = FMath::Abs(AxisInputValue);
+					BrakeRatioRight = BrakeRatio;
+					BrakeRatioLeft = BrakeRatio;
+
 					WheelForwardCoefficient = 0.f;
 				}
 			}
 			else
 			{
-				if (FMath::Sign(InvTransformVelocity.X) > 0)
+				if (ForwardMovementWithForwardPressed)
 				{
-					BrakeRatioLeft = FMath::Abs(AxisInputValue);
-					BrakeRatioRight = FMath::Abs(AxisInputValue);
+					float BrakeRatio = FMath::Abs(AxisInputValue);
+					BrakeRatioRight = BrakeRatio;
+					BrakeRatioLeft = BrakeRatio;
+
 					WheelForwardCoefficient = 0.f;
 				}
 				else
 				{
 					ReverseGear = true;
+
 					ShiftGear(0);
 
-					BrakeRatioLeft = 0.f;
 					BrakeRatioRight = 0.f;
+					BrakeRatioLeft = 0.f;
 					WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 				}
 			}
 		}
 		else
 		{
-			// We are not moving
-
-			if (FMath::Sign(AxisInputValue) > 0.f)
+			if (IsForwardPressed)
 			{
 				ReverseGear = false;
 				ShiftGear(0);
-				BrakeRatioLeft = 0.f;
-				BrakeRatioRight = 0.f;
-				WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 
-				//UE_LOG(LogTemp, Warning, TEXT("We are moving forward, WheelForwardCoefficient: %f, CurrentGear: %f"), WheelForwardCoefficient, CurrentGear);
+				BrakeRatioRight = 0.f;
+				BrakeRatioLeft = 0.f;
+				WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 			}
-			else
+			if (IsBackwardPressed)
 			{
 				ReverseGear = true;
 				ShiftGear(0);
 
-				BrakeRatioLeft = 0.f;
 				BrakeRatioRight = 0.f;
+				BrakeRatioLeft = 0.f;
 				WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 			}
 		}
 	}
 	else
 	{
-		// No throttle, but maybe we are steering
-		if (InputVehicleLeftRight != 0.f && !(InvTransformVelocity.Size() > 10.f))
+		if (AreWeSteeringWithNoMovement)
 		{
 			ReverseGear = false;
 			ShiftGear(0);
 
 			BrakeRatioRight = 0.f;
 			BrakeRatioLeft = 0.f;
-
 			WheelForwardCoefficient = FMath::Abs(AxisInputValue);
-
 		}
 		else
 		{
 			BrakeRatioRight = 0.f;
 			BrakeRatioLeft = 0.f;
-
 			WheelForwardCoefficient = FMath::Abs(AxisInputValue);
 		}
 	}

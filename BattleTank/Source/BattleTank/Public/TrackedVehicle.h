@@ -105,7 +105,7 @@ private:
 	void UpdateAxleVelocity();
 	void CalculateEngineAndUpdateDrive();
 	void CountFrictionContactPoint(TArray<FSuspensionInternalProcessing> SuspSide);
-	void ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSide, FVector DriveForceSide);
+	void ApplyDriveForceAndGetFrictionForceOnSide(float& TotalFrictionTorqueSide, float& TotalRollingFrictionTorqueSide, TArray<FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSide, FVector DriveForceSide, float DeltaTime);
 	float GetVehicleMass();
 	float GetGearBoxTorque(float EngineTorque);
 	float GetEngineRPMFromAxle(float AxleAngVel);
@@ -115,7 +115,7 @@ private:
 	void ShowSuspensionHandles(bool DebugMode);
 	void SpawnDust(TArray < FSuspensionInternalProcessing> SuspensionSide, float TrackLinearVelSlide);
 	
-	void TraceForSuspension(bool& BlockingHit, FVector& Location, FVector& ImpactPoint, FVector& ImpactNormal, EPhysicalSurface& SurfaceType, UPrimitiveComponent* Component, FVector Start, FVector End, float Radius);
+	void TraceForSuspension(FHitResult& OutHit, FVector Start, FVector End, float Radius);
 	FORCEINLINE bool VTraceSphere(AActor * ActorToIgnore, const FVector & Start, const FVector & End, const float Radius, FHitResult & HitOut, ECollisionChannel TraceChannel);
 	
 	virtual bool AnimateTreadsMaterial(float DeltaTime);
@@ -124,7 +124,8 @@ private:
 	void ShiftGear(int ShiftUpOrDown);
 	void UpdateAutoGearBox();
 	void SetRemoveAutoGearBox(bool ShouldSetTimer);
-	void GetThrottleInputForAutoHandling(float InputVehicleLeftRight, float InputVehicleForwardBackward);
+
+	
 	void GetGearBoxInfo(int& GearNum, bool& ReverseGear, bool& Automatic);
 	void GetMuFromFrictionElipse(float& Mu_Static, float& Mu_Kinetic, FVector VelocityDirectionNormalized, FVector ForwardVector, float Mu_X_Static, float Mu_Y_Static, float Mu_X_Kinetic, float Mu_Y_Kinetic);
 
@@ -147,6 +148,11 @@ public:
 
 	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* InputComponent) override;
+
+	FVector GetCenterOfMass();
+
+	UFUNCTION(BlueprintCallable, Category = "Handle Input")
+	void GetThrottleInputForAutoHandling(float InputVehicleLeftRight, float InputVehicleForwardBackward);
 
 	UFUNCTION()
 	void ForwardBackward(float AxisValue);
@@ -379,6 +385,9 @@ public:
 	TArray<UStaticMeshComponent*> RightWheels;
 	UPROPERTY(BlueprintReadWrite, Category = "Setup")
 	TArray<UStaticMeshComponent*> LeftWheels;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Setup")
+	FVector LocalCenterOfMass = FVector(0, 0, 0);
 
 	bool DebugMode = false;
 protected:
