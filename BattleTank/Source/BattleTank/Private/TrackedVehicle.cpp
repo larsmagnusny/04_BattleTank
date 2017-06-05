@@ -69,6 +69,166 @@ void ATrackedVehicle::Tick( float DeltaTime ) // TODO DoubleCheck tick function 
 	if (LeftWheels.Num() == 0)
 		return;
 
+	FVector AngVel = GetActorTransform().TransformVector(Body->GetPhysicsAngularVelocity());
+	
+	//UE_LOG(LogTemp, Warning, TEXT("%s"), *AngVel.ToString());
+
+	float AbsoluteAngVel = FMath::Abs(AngVel.Z);
+
+	float Resistance = 0.f;
+
+	if (AbsoluteAngVel > 100.f)
+	{
+		if (ReverseGear)
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = 2.f;
+				WheelLeftResistanceCoeficient = -2.f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = -2.f;
+				WheelLeftResistanceCoeficient = 2.f;
+			}
+		}
+		else
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = -2.f;
+				WheelLeftResistanceCoeficient = 2.f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = 2.f;
+				WheelLeftResistanceCoeficient = -2.f;
+			}
+		}
+	} else if (AbsoluteAngVel > 50.f)
+	{
+		if (ReverseGear)
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.8f;
+				WheelLeftResistanceCoeficient = -0.8f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.8f;
+				WheelLeftResistanceCoeficient = 0.8f;
+			}
+		}
+		else
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.8f;
+				WheelLeftResistanceCoeficient = 0.8f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.8f;
+				WheelLeftResistanceCoeficient = -0.8f;
+			}
+		}
+	}
+	else if (AbsoluteAngVel > 20.f)
+	{
+		if (ReverseGear)
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.6f;
+				WheelLeftResistanceCoeficient = -0.6f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.6f;
+				WheelLeftResistanceCoeficient = 0.6f;
+			}
+		}
+		else
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.6f;
+				WheelLeftResistanceCoeficient = 0.6f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.6f;
+				WheelLeftResistanceCoeficient = -0.6f;
+			}
+		}
+	}
+	else if (AbsoluteAngVel > 5.f)
+	{
+		if (ReverseGear)
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.3f;
+				WheelLeftResistanceCoeficient = -0.3f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.3f;
+				WheelLeftResistanceCoeficient = 0.3f;
+			}
+		}
+		else
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.3f;
+				WheelLeftResistanceCoeficient = 0.3f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.3f;
+				WheelLeftResistanceCoeficient = -0.3f;
+			}
+		}
+	}
+	else if (AbsoluteAngVel > 1.f)
+	{
+		if (ReverseGear)
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.1f;
+				WheelLeftResistanceCoeficient = -0.1f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.1f;
+				WheelLeftResistanceCoeficient = -0.1f;
+			}
+		}
+		else
+		{
+			if (AngVel.Z > 0.f)
+			{
+				WheelRightResistanceCoeficient = -0.1f;
+				WheelLeftResistanceCoeficient = 0.1f;
+			}
+			if (AngVel.Z < 0.f)
+			{
+				WheelRightResistanceCoeficient = 0.1f;
+				WheelLeftResistanceCoeficient = -0.1f;
+			}
+		}
+	}
+	else
+	{
+		WheelRightResistanceCoeficient = 0.f;
+		WheelLeftResistanceCoeficient = 0.f;
+	}
+
+	
+
 	if (!PutToSleep())
 	{
 		UpdateThrottle(DeltaTime);
@@ -571,10 +731,10 @@ void ATrackedVehicle::PositionAndAnimateDriveWheels(UStaticMeshComponent* WheelC
 
 void ATrackedVehicle::UpdateThrottle(float DeltaTime)
 {
-	TrackTorqueTransferRight = FMath::Clamp<float>(WheelRightCoefficient + WheelForwardCoefficient, -1.f, 2.f);
-	TrackTorqueTransferLeft = FMath::Clamp<float>(WheelLeftCoefficient + WheelForwardCoefficient, -1.f, 2.f);
+	TrackTorqueTransferRight = FMath::Clamp<float>((WheelRightCoefficient - WheelRightResistanceCoeficient) + WheelForwardCoefficient, -1.f, 2.f);
+	TrackTorqueTransferLeft = FMath::Clamp<float>((WheelLeftCoefficient - WheelLeftResistanceCoeficient) + WheelForwardCoefficient, -1.f, 2.f);
 
-	float Max = FMath::Max<float>(TrackTorqueTransferLeft, TrackTorqueTransferRight);
+	float Max = FMath::Max<float>(TrackTorqueTransferRight, TrackTorqueTransferLeft);
 
 	if (Max != 0.f)
 	{
@@ -593,8 +753,8 @@ void ATrackedVehicle::UpdateWheelsVelocity(float DeltaTime)
 	TrackRightTorque = DriveRightTorque + TrackFrictionTorqueRight + TrackRollingFrictionTorqueRight;
 	TrackLeftTorque = DriveLeftTorque + TrackFrictionTorqueLeft + TrackRollingFrictionTorqueLeft;
 
-	float AngVelInRight = (TrackRightTorque / MomentIntertia) * DeltaTime + TrackRightAngVel;
-	float AngVelInLeft = (TrackLeftTorque / MomentIntertia) * DeltaTime + TrackLeftAngVel;
+	float AngVelInRight = ((TrackRightTorque / MomentIntertia) * DeltaTime) + TrackRightAngVel;
+	float AngVelInLeft = ((TrackLeftTorque / MomentIntertia) * DeltaTime) + TrackLeftAngVel;
 
 	TrackRightAngVel = ApplyBrake(AngVelInRight, BrakeRatioRight, DeltaTime);	// TODO, doublecheck
 	TrackLeftAngVel = ApplyBrake(AngVelInLeft, BrakeRatioLeft, DeltaTime);		// TODO, doublecheck
@@ -1105,11 +1265,6 @@ void ATrackedVehicle::GetThrottleInputForAutoHandling(float InputVehicleLeftRigh
 	bool IsBackwardPressed = FMath::Sign(AxisInputValue) < 0.f;
 	bool ForwardMovementWithForwardPressed = FMath::Sign(LocalVelocity.X) > 0.f && IsForwardPressed;
 	bool AreWeSteeringWithNoMovement = InputVehicleLeftRight != 0.f && !(IsVehicleMoving);
-	
-	//UE_LOG(LogTemp, Warning, TEXT("AxisInputValue: %f, ForwardBackwardPressed: %i, IsVehicleMoving: %i, IsForwardPressed: %i, ForwardMovementPressed: %i, AreWeSteeringStill: %i"), AxisInputValue, (int)ForwardBackwardPressed, (int)IsVehicleMoving, (int)IsForwardPressed, (int)ForwardMovementWithForwardPressed, (int)AreWeSteeringWithNoMovement);
-	//UE_LOG(LogTemp, Warning, TEXT("WheelRightCoef: %f, WheelLeftCoef: %f"), WheelRightCoefficient, WheelLeftCoefficient);
-
-	UE_LOG(LogTemp, Warning, TEXT("Right AngularVelocity: %f, Left AngularVelocity: %f"), TrackRightAngVel, TrackLeftAngVel);
 
 	if (ForwardBackwardPressed)
 	{

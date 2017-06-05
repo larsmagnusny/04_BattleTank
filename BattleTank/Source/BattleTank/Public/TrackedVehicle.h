@@ -84,7 +84,8 @@ class BATTLETANK_API ATrackedVehicle : public APawn
 	GENERATED_BODY()
 private:
 	
-
+	float WheelRightResistanceCoeficient = 0.f;
+	float WheelLeftResistanceCoeficient = 0.f;
 
 	void AddWheelForce(UPrimitiveComponent* Wheel, FVector Force);
 	void AddCarriage(int CarriageType, int Position);
