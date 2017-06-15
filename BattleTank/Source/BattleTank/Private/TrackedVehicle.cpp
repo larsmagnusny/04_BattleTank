@@ -1287,6 +1287,8 @@ void ATrackedVehicle::GetThrottleInputForAutoHandling(float InputVehicleLeftRigh
 					BrakeRatioRight = BrakeRatio;
 					BrakeRatioLeft = BrakeRatio;
 
+					UE_LOG(LogTemp, Error, TEXT("Braking!"));
+
 					WheelForwardCoefficient = 0.f;
 				}
 			}
